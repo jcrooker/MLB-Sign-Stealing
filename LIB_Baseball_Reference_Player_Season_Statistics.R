@@ -141,7 +141,9 @@ mlb_teams_by_season<-function(season=2017) {
   }
   return(my_teams)
 }
-archive_team_rooster_season_performance<-function(season=2017) {
+archive_team_rooster_season_performance<-function(season=2017,base_dir="C:/research/mlb") {
+  prepare_dir<-build_directory_structure(base_dir=base_dir,seasons=season)
+
   my_teams<-mlb_teams_by_season(season=season)
   for (iteam in my_teams) {
     ifile<-paste0("C:/research/mlb/",season,"/",iteam,"_",season,".csv")
@@ -152,3 +154,26 @@ archive_team_rooster_season_performance<-function(season=2017) {
     }
   }
 }
+build_directory_structure<-function(base_dir="C:/research/mlb",seasons=2010:2018) {
+  if (!file.exists(base_dir)) {
+      dir.create(base_dir)
+  }
+  
+  for (iseason in seasons) {
+    iseason_dir<-paste0(base_dir,"/",iseason)
+    if (!file.exists(iseason_dir)) {
+      dir.create(iseason_dir)
+    }
+  }
+  return(TRUE)
+}
+archive_team_roster_perf_multiseasons<-function(base_dir="C:/research/mlb",seasons=2010:2018) {
+  trash<-lapply(as.list(seasons),
+                function(yr) {archive_team_rooster_season_performance(season=yr,base_dir=base_dir)})
+}
+###
+### Uncomment the code chunk below (line 179) to scrape MLB Data into local <base_dir> for
+### seasons 2010, 2011, 2012, ... , 2018.  If you have another location you would like to use,
+### replace the path inside quotes on line 179.
+
+# archive_team_roster_perf_multiseasons(base_dir="C:/research/mlb",seasons=2010:2018)
