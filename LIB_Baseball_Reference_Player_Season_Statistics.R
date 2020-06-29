@@ -73,6 +73,16 @@ batter_previous_season_statistics<-function(href="/players/m/mccanbr01.shtml",pr
       }
       p_datfr<-data.frame(matrix(pdata,nrow=1),stringsAsFactors = FALSE)
       names(p_datfr)<-stat
+      ### Identify MLB Service Years
+      service_loc<-grep("[<tr id=\"batting[_]standard[.][1-2][0-9][0-9][0-9]\"",my_txt)
+      v_yr<-0
+      if (length(service_loc)>0) {
+        service_yrs<-unlist(lapply(as.list(my_txt[service_loc]),
+                                   function(str) {substr(strsplit(str,"batting[_]standard[.]")[[1]][2],1,4)})) 
+        v_yr<-which(service_yrs==as.character(previous_season))
+      }
+      p_datfr$MLB_Years<-v_yr
+      ### End Identify MLB Service Years
     }
     ### End Read Player data 
   }
