@@ -1,0 +1,171 @@
+---
+title: "Replicating Crooker, Azevedo and Fenn, 2020"
+author: "John R. Crooker, Ph.D."
+date: "June 29, 2020"
+output: html_document
+---
+
+## Some functions 
+
+This function will be called below.  It simply calculates summary statistics for numerical columns in a data.frame.
+
+```{r}
+my_summary_stats_datframe<-function(x) {
+  my_matrix<-matrix(0,nrow=ncol(x),ncol=9)
+  for (i in 1:ncol(x)) {
+    i_smy<-summary(x[,i])
+    my_matrix[i,1:length(i_smy)]<-as.numeric(i_smy)
+    my_matrix[i,8]<-sum(!is.na(x[,i]))
+    my_matrix[i,9]<-sd(x[,i],na.rm=TRUE)
+  }
+  my_smy<-cbind(cbind(my_matrix[,c(8,7)],my_matrix[,1:6]),my_matrix[,9])
+  my_datfr<-data.frame(my_smy)
+  names(my_datfr)<-c("Obs","Miss.","Min","1Q","Med.","Mean","3Q","Max","SD")
+  rownames(my_datfr)<-names(x)
+  return(my_datfr)
+}
+
+```
+
+## Loading the data
+
+The data is available in a [link](https://github.com/jcrooker/MLB-Sign-Stealing) Github repository. 
+
+```{r}
+model_data2<-read.csv("https://raw.githubusercontent.com/jcrooker/MLB-Sign-Stealing/master/mlb_bavg_data.csv",
+                      header=TRUE,
+                      stringsAsFactors = FALSE)
+
+numeric_cols<-unlist(lapply(as.list(1:ncol(model_data2)),
+                            function(i) {is.numeric(model_data2[,i])}))
+smy_stats2_datfr<-my_summary_stats_datframe(x=model_data2[,numeric_cols])
+print(smy_stats2_datfr)
+```
+
+Estimate the model
+
+\[
+\begin{split}
+\text{(Eq 18)  }&bavg_{i,t}=\beta_0+\beta_1bavg_{i,t-1}+\beta_2age_{i,t}+\sum_{j=1}^{J}\theta_jI_{i,t,j}+\epsilon_{i,t},
+\end{split}
+\]
+
+```{r}
+mlb_bavg<-lm(bavg~Lbavg+age+Y11+Y12+Y13+Y14+Y15+Y16+Y17+Y18,
+             data=model_data2)
+coef_table<-summary(mlb_bavg)$coefficients
+
+sigma<-round(summary(mlb_bavg)$sigma,4)
+rsq<-round(summary(mlb_bavg)$r.squared,4)
+adjrsq<-round(summary(mlb_bavg)$adj.r.squared,4)
+
+print(summary(mlb_bavg))
+```
+
+Note that Heteroskedasticity is a problem and should be corrected.
+
+```{r}
+### White's Test for heteroskedasticity
+### There is evidence of Heteroskedasticity
+
+uhat2<-mlb_bavg$residuals^2
+yhat<-predict(mlb_bavg)
+yhat2<-yhat^2
+
+whites_data<-data.frame(uhat2,yhat,yhat2)
+aux_model<-lm(uhat2~yhat+yhat2,data=whites_data)
+print(summary(aux_model))
+```
+
+A plot of the model residuals:
+
+```{r,echo=FALSE}
+hist(mlb_bavg$residuals,
+     xlab="Model residuals",
+     ylab="Probability",
+     probability = TRUE,
+     lwd=2,
+     las=1,
+     main="Model Residuals Histogram")
+
+x_vals<-seq(min(mlb_bavg$residuals),max(mlb_bavg$residuals),length=1000)
+y_val<-dnorm(x_vals,mean=0,sd=sigma)
+points(x=x_vals,
+       y=y_val,
+       type="l",
+       col="blue",
+       lwd=2)
+```
+
+## The MLB Empirical Distribution
+
+```{r}
+difference_between_discrete_empirical_densities<-function(y1,y2) {
+  n1<-sum(y1)
+  n2<-sum(y2)
+  E2<-(y1/n1)*n2
+  chi_stat<-((y2-E2)^2)/E2
+  return(sum(chi_stat))
+}
+```
+
+The *Monte Carlo* algorithm:
+
+```{r}
+my_seasons<-unique(model_data2$year)
+model_data2$team[model_data2$team=="FLA"]<-"MIA"
+
+my_teams<-unique(model_data2$team)
+
+my_matrix<-matrix(NA,nrow=length(my_seasons),
+                  ncol=length(my_teams))
+chi_critical<-qchisq(p=0.95,df=1,lower.tail=TRUE)
+
+for (season in my_seasons) {
+  for (team in my_teams) {
+    st_dat<-model_data2[model_data2$year==season & model_data2$team==team,]
+    st_dat$pred<-predict(mlb_bavg,newdata=st_dat)
+    lineup_chi<-rep(NA,nrow(st_dat))
+    for (j in 1:nrow(st_dat)) {
+      j_hits<-st_dat$H[j]
+      j_not<-st_dat$AB[j]-j_hits
+      j_y1<-c(st_dat$pred[j],1-st_dat$pred[j])
+      j_y2<-c(j_hits,j_not)
+      lineup_chi[j]<-difference_between_discrete_empirical_densities(y1=j_y1,
+                            y2=j_y2)
+    }
+    my_matrix[which(season==my_seasons),
+              which(team==my_teams)]<-sum(lineup_chi>chi_critical,
+                                          na.rm=TRUE)
+  }
+}
+
+mlb_datfr<-data.frame(Seasons=my_seasons,
+                      my_matrix)
+names(mlb_datfr)[2:ncol(mlb_datfr)]<-my_teams
+```
+
+The empirical distribution of our test-statistic appears in the following histogram.
+
+```{r,echo=FALSE,results='asis'}
+hist(unlist(mlb_datfr[,-1]),probability=TRUE,
+     xlab="Empirical Test-Statistic",
+     main="Empirical Distribution for MLB, 2010-2018",
+     las=1)
+```
+
+The frequency distribution of our the empirical statistic in tabular form.
+
+```{r}
+mlb_stat<-unlist(mlb_datfr[,-1])
+omlb_stat<-mlb_stat[order(mlb_stat)]
+
+mlb_95<-omlb_stat[floor(0.95*length(omlb_stat))]
+
+stat_tab<-table(mlb_stat)
+stat_datfr<-data.frame(Statistic=names(stat_tab),
+                       Count=as.numeric(stat_tab),
+                       Pct=as.numeric(stat_tab)/sum(as.numeric(stat_tab)))
+print(stat_datfr)
+```
+
